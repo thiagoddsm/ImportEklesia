@@ -30,7 +30,7 @@
 </head>
 <body>
 
-    <div id="app-container" class="max-w-4xl mx-auto my-8 flex flex-col gap-6">
+    <div id="app-container" class="max-w-5xl mx-auto my-8 flex flex-col gap-6">
         <header class="text-center mb-4">
             <h1 class="text-3xl font-bold text-gray-800">Importador Financeiro</h1>
             <p class="text-gray-600">Converta seu extrato OFX para o formato do sistema Eklesia</p>
@@ -93,6 +93,7 @@
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Histórico (Selecionável/Editável)</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Centro Custo</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ação</th>
                             </tr>
                         </thead>
                         <tbody id="transactions-table-body" class="bg-white divide-y divide-gray-200">
@@ -225,30 +226,41 @@
             tablePlaceholder.classList.add('hidden');
             table.classList.remove('hidden');
 
-            tableBody.innerHTML = ''; // Limpa a tabela
+            tableBody.innerHTML = '';
             allTransactions.forEach(t => {
                 const row = document.createElement('tr');
-                
+                tableBody.appendChild(row);
+
                 // Status Cell
                 const statusCell = document.createElement('td');
                 statusCell.className = 'px-4 py-2 text-center';
                 if (t.validationStatus === 'validating') statusCell.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spinner mx-auto"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>`;
                 if (t.validationStatus === 'verified') statusCell.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="color: var(--income-color)" class="mx-auto"><path d="M20 6 9 17l-5-5"></path></svg>`;
                 if (t.validationStatus === 'unverified') statusCell.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #f39c12" class="mx-auto"><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
-                
-                // Histórico Cell (com select ou input)
+                row.appendChild(statusCell);
+
+                // Data e Valor
+                const dateCell = document.createElement('td');
+                dateCell.className = 'px-4 py-2 whitespace-nowrap';
+                dateCell.textContent = t.date;
+                row.appendChild(dateCell);
+
+                const amountCell = document.createElement('td');
+                amountCell.className = `px-4 py-2 whitespace-nowrap ${t.amount < 0 ? 'text-red-600' : 'text-green-600'}`;
+                amountCell.textContent = t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                row.appendChild(amountCell);
+
+                // Histórico Cell
                 const historicoCell = document.createElement('td');
                 historicoCell.className = 'px-4 py-2';
+                row.appendChild(historicoCell);
+
                 if (t.suggestedNames && t.suggestedNames.length > 0) {
                     const select = document.createElement('select');
                     select.className = 'w-full p-1 border rounded editable-input';
                     select.value = t.eklesia_historico;
-                    select.onchange = (e) => {
-                        const transaction = allTransactions.find(tx => tx.id === t.id);
-                        transaction.eklesia_historico = e.target.value;
-                    };
+                    select.onchange = (e) => { t.eklesia_historico = e.target.value; };
                     const originalName = t.description.replace(/^PIX RECEBIDO\s+/, '');
-                    // **MUDANÇA AQUI**: Adicionada a nova opção estática
                     select.innerHTML = `<option value="${originalName}">${originalName} (Original)</option>` +
                                        `<option value="CONTRIBUICAO DE NAO MEMBRO">CONTRIBUICAO DE NAO MEMBRO</option>` +
                                        t.suggestedNames.map(name => `<option value="${name}">${name}</option>`).join('');
@@ -258,23 +270,43 @@
                     input.type = 'text';
                     input.className = 'w-full p-1 border rounded';
                     input.value = t.eklesia_historico;
-                    input.onchange = (e) => {
-                        const transaction = allTransactions.find(tx => tx.id === t.id);
-                        transaction.eklesia_historico = e.target.value;
-                    };
+                    input.onchange = (e) => { t.eklesia_historico = e.target.value; };
                     historicoCell.appendChild(input);
                 }
 
-                // Outras Células
-                row.innerHTML = `
-                    ${statusCell.outerHTML}
-                    <td class="px-4 py-2 whitespace-nowrap">${t.date}</td>
-                    <td class="px-4 py-2 whitespace-nowrap ${t.amount < 0 ? 'text-red-600' : 'text-green-600'}">${t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                    ${historicoCell.outerHTML}
-                    <td class="px-4 py-2"><input type="text" value="${t.eklesia_categoria}" class="w-20 p-1 border rounded" onchange="(e) => { const t = allTransactions.find(tx => tx.id === '${t.id}'); t.eklesia_categoria = e.target.value; }"></td>
-                    <td class="px-4 py-2"><input type="text" value="${t.eklesia_centro_custo}" class="w-20 p-1 border rounded" onchange="(e) => { const t = allTransactions.find(tx => tx.id === '${t.id}'); t.eklesia_centro_custo = e.target.value; }"></td>
-                `;
-                tableBody.appendChild(row);
+                // Categoria e Centro de Custo
+                const categoriaCell = document.createElement('td');
+                categoriaCell.className = 'px-4 py-2';
+                const categoriaInput = document.createElement('input');
+                categoriaInput.type = 'text';
+                categoriaInput.value = t.eklesia_categoria;
+                categoriaInput.className = 'w-20 p-1 border rounded';
+                categoriaInput.onchange = (e) => { t.eklesia_categoria = e.target.value; };
+                categoriaCell.appendChild(categoriaInput);
+                row.appendChild(categoriaCell);
+
+                const centroCustoCell = document.createElement('td');
+                centroCustoCell.className = 'px-4 py-2';
+                const centroCustoInput = document.createElement('input');
+                centroCustoInput.type = 'text';
+                centroCustoInput.value = t.eklesia_centro_custo;
+                centroCustoInput.className = 'w-20 p-1 border rounded';
+                centroCustoInput.onchange = (e) => { t.eklesia_centro_custo = e.target.value; };
+                centroCustoCell.appendChild(centroCustoInput);
+                row.appendChild(centroCustoCell);
+
+                // Ação Cell
+                const actionCell = document.createElement('td');
+                actionCell.className = 'px-4 py-2 text-center';
+                if (t.description.startsWith("PIX RECEBIDO")) {
+                    const revalidateBtn = document.createElement('button');
+                    revalidateBtn.className = 'p-1 rounded-full hover:bg-gray-200';
+                    revalidateBtn.title = 'Revalidar este nome';
+                    revalidateBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`;
+                    revalidateBtn.onclick = () => handleRevalidateSingle(t.id);
+                    actionCell.appendChild(revalidateBtn);
+                }
+                row.appendChild(actionCell);
             });
         }
 
@@ -284,6 +316,42 @@
             exportBtn.disabled = eligibleCount === 0;
         }
 
+        async function validateTransaction(transaction) {
+            const t = transaction;
+            t.validationStatus = 'validating';
+            renderTable();
+
+            const searchName = t.eklesia_historico.split(' ').slice(0, 2).join(' ');
+            const baseUrl = 'https://gestaoweb.eklesiaonline.com.br/webapi/api/Integracoes/Pessoa';
+            const params = new URLSearchParams({ pagina: 0, codIgreja: config.COD_IGREJA, nome: searchName });
+            const url = `${baseUrl}?${params.toString()}`;
+
+            try {
+                await new Promise(resolve => setTimeout(resolve, 300));
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${config.EKLESIA_API_TOKEN}` }
+                });
+
+                if (!response.ok) {
+                    t.validationStatus = 'unverified';
+                } else {
+                    const data = await response.json();
+                    if (data.registros && data.registros.length > 0) {
+                        t.suggestedNames = data.registros.map(p => p.nome);
+                        t.eklesia_historico = t.suggestedNames.length === 1 ? t.suggestedNames[0] : t.eklesia_historico;
+                        t.validationStatus = 'verified';
+                    } else {
+                        t.validationStatus = 'unverified';
+                    }
+                }
+            } catch (error) {
+                console.error("API Error:", error);
+                t.validationStatus = 'unverified';
+            }
+            renderTable();
+        }
+        
         async function handleValidateNames() {
             updateConfigFromUI();
             if (!config.EKLESIA_API_TOKEN || !config.COD_IGREJA) {
@@ -294,45 +362,29 @@
             validateBtn.disabled = true;
             validateBtn.textContent = 'Validando...';
 
-            for (const t of allTransactions) {
-                if (t.validationStatus === 'pending' || t.validationStatus === 'unverified') {
-                    t.validationStatus = 'validating';
-                    renderTable(); 
-
-                    const searchName = t.eklesia_historico.split(' ').slice(0, 2).join(' ');
-                    const baseUrl = 'https://gestaoweb.eklesiaonline.com.br/webapi/api/Integracoes/Pessoa';
-                    const params = new URLSearchParams({ pagina: 0, codIgreja: config.COD_IGREJA, nome: searchName });
-                    const url = `${baseUrl}?${params.toString()}`;
-
-                    try {
-                        await new Promise(resolve => setTimeout(resolve, 300));
-                        const response = await fetch(url, {
-                            method: 'GET',
-                            headers: { 'Authorization': `Bearer ${config.EKLESIA_API_TOKEN}` }
-                        });
-
-                        if (!response.ok) {
-                            t.validationStatus = 'unverified';
-                        } else {
-                            const data = await response.json();
-                            if (data.registros && data.registros.length > 0) {
-                                t.suggestedNames = data.registros.map(p => p.nome);
-                                t.eklesia_historico = t.suggestedNames.length === 1 ? t.suggestedNames[0] : t.eklesia_historico;
-                                t.validationStatus = 'verified';
-                            } else {
-                                t.validationStatus = 'unverified';
-                            }
-                        }
-                    } catch (error) {
-                        console.error("API Error:", error);
-                        t.validationStatus = 'unverified';
-                    }
-                    renderTable();
-                }
+            const transactionsToValidate = allTransactions.filter(t => t.validationStatus === 'pending' || t.validationStatus === 'unverified');
+            for (const t of transactionsToValidate) {
+                await validateTransaction(t);
             }
+
             isValidating = false;
             validateBtn.disabled = false;
             validateBtn.textContent = 'Validar Nomes com API';
+        }
+
+        async function handleRevalidateSingle(transactionId) {
+            if (isValidating) return;
+            updateConfigFromUI();
+            if (!config.EKLESIA_API_TOKEN || !config.COD_IGREJA) {
+                alert('Por favor, preencha todos os campos de configuração da API (Token e Cód. Igreja).');
+                return;
+            }
+            isValidating = true;
+            const transaction = allTransactions.find(t => t.id === transactionId);
+            if (transaction) {
+                await validateTransaction(transaction);
+            }
+            isValidating = false;
         }
 
         function handleExport() {
