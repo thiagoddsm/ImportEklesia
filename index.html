@@ -18,10 +18,13 @@
         .spinner { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         select.editable-input { 
-            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%2... (ícone de seta)'); 
+            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23007CB2%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E'); 
             background-repeat: no-repeat; 
             background-position: right .7em top 50%; 
             background-size: .65em auto;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
         }
     </style>
 </head>
@@ -212,7 +215,7 @@
             if (transactions.length === 0) throw new Error("Nenhuma transação válida foi extraída.");
             return transactions;
         }
-
+        
         function renderTable() {
             if (allTransactions.length === 0) {
                 tablePlaceholder.classList.remove('hidden');
@@ -245,7 +248,9 @@
                         transaction.eklesia_historico = e.target.value;
                     };
                     const originalName = t.description.replace(/^PIX RECEBIDO\s+/, '');
-                    select.innerHTML = `<option value="${originalName}">${originalName} (Original)</option>` + 
+                    // **MUDANÇA AQUI**: Adicionada a nova opção estática
+                    select.innerHTML = `<option value="${originalName}">${originalName} (Original)</option>` +
+                                       `<option value="CONTRIBUICAO DE NAO MEMBRO">CONTRIBUICAO DE NAO MEMBRO</option>` +
                                        t.suggestedNames.map(name => `<option value="${name}">${name}</option>`).join('');
                     historicoCell.appendChild(select);
                 } else {
@@ -292,7 +297,7 @@
             for (const t of allTransactions) {
                 if (t.validationStatus === 'pending' || t.validationStatus === 'unverified') {
                     t.validationStatus = 'validating';
-                    renderTable(); // Atualiza a tabela para mostrar o spinner
+                    renderTable(); 
 
                     const searchName = t.eklesia_historico.split(' ').slice(0, 2).join(' ');
                     const baseUrl = 'https://gestaoweb.eklesiaonline.com.br/webapi/api/Integracoes/Pessoa';
@@ -300,7 +305,7 @@
                     const url = `${baseUrl}?${params.toString()}`;
 
                     try {
-                        await new Promise(resolve => setTimeout(resolve, 300)); // Evita rate limit
+                        await new Promise(resolve => setTimeout(resolve, 300));
                         const response = await fetch(url, {
                             method: 'GET',
                             headers: { 'Authorization': `Bearer ${config.EKLESIA_API_TOKEN}` }
@@ -322,7 +327,7 @@
                         console.error("API Error:", error);
                         t.validationStatus = 'unverified';
                     }
-                    renderTable(); // Re-renderiza a tabela com o novo status
+                    renderTable();
                 }
             }
             isValidating = false;
