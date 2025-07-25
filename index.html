@@ -17,15 +17,6 @@
         body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--text-color); margin: 0; padding: 1rem; }
         .spinner { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        select.editable-input { 
-            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23007CB2%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E'); 
-            background-repeat: no-repeat; 
-            background-position: right .7em top 50%; 
-            background-size: .65em auto;
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
-        }
     </style>
 </head>
 <body>
@@ -265,10 +256,10 @@
                 checkbox.type = 'checkbox';
                 checkbox.checked = t.selected;
                 checkbox.className = 'h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500';
-                checkbox.onchange = () => {
+                checkbox.addEventListener('change', () => {
                     t.selected = checkbox.checked;
                     updateExportButton();
-                };
+                });
                 checkboxCell.appendChild(checkbox);
                 row.appendChild(checkboxCell);
 
@@ -281,41 +272,72 @@
                 row.appendChild(statusCell);
 
                 // Data e Valor
-                row.innerHTML += `
-                    <td class="px-4 py-2 whitespace-nowrap">${t.date}</td>
-                    <td class="px-4 py-2 whitespace-nowrap ${t.amount < 0 ? 'text-red-600' : 'text-green-600'}">${t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                `;
+                const dateCell = document.createElement('td');
+                dateCell.className = 'px-4 py-2 whitespace-nowrap';
+                dateCell.textContent = t.date;
+                row.appendChild(dateCell);
+                const amountCell = document.createElement('td');
+                amountCell.className = `px-4 py-2 whitespace-nowrap ${t.amount < 0 ? 'text-red-600' : 'text-green-600'}`;
+                amountCell.textContent = t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                row.appendChild(amountCell);
 
                 // Histórico Cell
                 const historicoCell = document.createElement('td');
                 historicoCell.className = 'px-4 py-2';
+                const historicoInput = document.createElement('input');
+                historicoInput.type = 'text';
+                historicoInput.className = 'w-full p-1 border rounded';
+                historicoInput.value = t.eklesia_historico;
+                historicoInput.addEventListener('input', (e) => { t.eklesia_historico = e.target.value; });
+                
+                // **MUDANÇA AQUI**: Lógica do Datalist para autocompletar
+                if (t.suggestedNames && t.suggestedNames.length > 0) {
+                    const dataListId = `suggestions-${t.id}`;
+                    historicoInput.setAttribute('list', dataListId);
+                    const datalist = document.createElement('datalist');
+                    datalist.id = dataListId;
+                    const originalName = t.description.replace(/^PIX RECEBIDO\s+/, '');
+                    datalist.innerHTML = `<option value="${originalName}"></option>` +
+                                         `<option value="CONTRIBUICAO DE NAO MEMBRO"></option>` +
+                                         t.suggestedNames.map(name => `<option value="${name}"></option>`).join('');
+                    historicoCell.appendChild(datalist);
+                }
+                historicoCell.appendChild(historicoInput);
                 row.appendChild(historicoCell);
 
-                if (t.suggestedNames && t.suggestedNames.length > 0) {
-                    const select = document.createElement('select');
-                    select.className = 'w-full p-1 border rounded editable-input';
-                    select.value = t.eklesia_historico;
-                    select.onchange = (e) => { t.eklesia_historico = e.target.value; };
-                    const originalName = t.description.replace(/^PIX RECEBIDO\s+/, '');
-                    select.innerHTML = `<option value="${originalName}">${originalName} (Original)</option>` +
-                                       `<option value="CONTRIBUICAO DE NAO MEMBRO">CONTRIBUICAO DE NAO MEMBRO</option>` +
-                                       t.suggestedNames.map(name => `<option value="${name}">${name}</option>`).join('');
-                    historicoCell.appendChild(select);
-                } else {
-                    const input = document.createElement('input');
-                    input.type = 'text';
-                    input.className = 'w-full p-1 border rounded';
-                    input.value = t.eklesia_historico;
-                    input.onchange = (e) => { t.eklesia_historico = e.target.value; };
-                    historicoCell.appendChild(input);
-                }
+                // Categoria e Centro de Custo
+                const categoriaCell = document.createElement('td');
+                categoriaCell.className = 'px-4 py-2';
+                const categoriaInput = document.createElement('input');
+                categoriaInput.type = 'text';
+                categoriaInput.value = t.eklesia_categoria;
+                categoriaInput.className = 'w-20 p-1 border rounded';
+                categoriaInput.addEventListener('input', (e) => { t.eklesia_categoria = e.target.value; });
+                categoriaCell.appendChild(categoriaInput);
+                row.appendChild(categoriaCell);
 
-                // Categoria, Centro de Custo, Ação
-                row.innerHTML += `
-                    <td class="px-4 py-2"><input type="text" value="${t.eklesia_categoria}" class="w-20 p-1 border rounded" onchange="(function(e){ allTransactions.find(tx => tx.id === '${t.id}').eklesia_categoria = e.target.value; })(event)"></td>
-                    <td class="px-4 py-2"><input type="text" value="${t.eklesia_centro_custo}" class="w-20 p-1 border rounded" onchange="(function(e){ allTransactions.find(tx => tx.id === '${t.id}').eklesia_centro_custo = e.target.value; })(event)"></td>
-                    <td class="px-4 py-2 text-center">${t.description.startsWith("PIX RECEBIDO") ? `<button data-id="${t.id}" class="revalidate-btn p-1 rounded-full hover:bg-gray-200" title="Revalidar este nome"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></button>` : ''}</td>
-                `;
+                const centroCustoCell = document.createElement('td');
+                centroCustoCell.className = 'px-4 py-2';
+                const centroCustoInput = document.createElement('input');
+                centroCustoInput.type = 'text';
+                centroCustoInput.value = t.eklesia_centro_custo;
+                centroCustoInput.className = 'w-20 p-1 border rounded';
+                centroCustoInput.addEventListener('input', (e) => { t.eklesia_centro_custo = e.target.value; });
+                centroCustoCell.appendChild(centroCustoInput);
+                row.appendChild(centroCustoCell);
+
+                // Ação Cell
+                const actionCell = document.createElement('td');
+                actionCell.className = 'px-4 py-2 text-center';
+                if (t.description.startsWith("PIX RECEBIDO")) {
+                    const revalidateBtn = document.createElement('button');
+                    revalidateBtn.className = 'revalidate-btn p-1 rounded-full hover:bg-gray-200';
+                    revalidateBtn.title = 'Revalidar este nome';
+                    revalidateBtn.dataset.id = t.id;
+                    revalidateBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`;
+                    actionCell.appendChild(revalidateBtn);
+                }
+                row.appendChild(actionCell);
             });
         }
 
@@ -343,6 +365,7 @@
 
                 if (!response.ok) {
                     t.validationStatus = 'unverified';
+                    t.suggestedNames = [];
                 } else {
                     const data = await response.json();
                     if (data.registros && data.registros.length > 0) {
@@ -351,18 +374,20 @@
                         t.validationStatus = 'verified';
                     } else {
                         t.validationStatus = 'unverified';
+                        t.suggestedNames = [];
                     }
                 }
             } catch (error) {
                 console.error("API Error:", error);
                 t.validationStatus = 'unverified';
+                t.suggestedNames = [];
             }
         }
         
         async function handleValidateNames() {
             updateConfigFromUI();
-            if (!config.EKLESIA_API_TOKEN || !config.COD_IGREJA) {
-                alert('Por favor, preencha todos os campos de configuração da API (Token e Cód. Igreja).');
+            if (!config.EKLESIA_API_TOKEN) {
+                alert('Por favor, preencha o Token da API.');
                 return;
             }
             isValidating = true;
@@ -391,8 +416,8 @@
         async function handleRevalidateSingle(transactionId) {
             if (isValidating) return;
             updateConfigFromUI();
-            if (!config.EKLESIA_API_TOKEN || !config.COD_IGREJA) {
-                alert('Por favor, preencha todos os campos de configuração da API (Token e Cód. Igreja).');
+            if (!config.EKLESIA_API_TOKEN) {
+                alert('Por favor, preencha o Token da API.');
                 return;
             }
             isValidating = true;
@@ -461,7 +486,6 @@
             exportBtn.addEventListener('click', handleExport);
             Object.values(configInputs).forEach(input => input.addEventListener('change', updateConfigFromUI));
 
-            // Event Listeners for Filters
             [filterNameInput, filterValueOpSelect, filterValueInput].forEach(el => {
                 el.addEventListener('input', applyFiltersAndRender);
             });
@@ -469,7 +493,6 @@
                 filterValueInput.disabled = filterValueOpSelect.value === 'all';
             });
             
-            // Event Listener for Select All
             selectAllCheckbox.addEventListener('change', () => {
                 const isChecked = selectAllCheckbox.checked;
                 const nameFilter = filterNameInput.value.toLowerCase();
@@ -491,7 +514,6 @@
                 updateExportButton();
             });
             
-            // Event delegation for revalidate buttons
             tableBody.addEventListener('click', (e) => {
                 const button = e.target.closest('.revalidate-btn');
                 if (button) {
