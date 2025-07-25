@@ -1,0 +1,425 @@
+import React, { useState, useEffect } from 'react';
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+
+// --- CONFIGURAÇÃO DO FIREBASE ---
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyCTl48Lp7t8hO2Y0b2cMmj9KpSctAXI6MQ",
+  authDomain: "importeklesia.firebaseapp.com",
+  projectId: "importeklesia",
+  storageBucket: "importeklesia.appspot.com",
+  messagingSenderId: "603914663525",
+  appId: "1:603914663525:web:e383b6b35c93285e61b88c",
+  measurementId: "G-E86D2ZP3J5"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+
+
+// --- ÍCONES SVG COMO COMPONENTES ---
+const CheckIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--income-color)'}}><path d="M20 6 9 17l-5-5"></path></svg>;
+const AlertIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#f39c12'}}><path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>;
+const SpinnerIcon = () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="spinner"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>;
+
+
+// --- COMPONENTES ---
+
+// 1. Componente para o upload e parsing do arquivo OFX
+function FileUpload({ onFileProcessed, config }) {
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target.result;
+        const transactions = parseOfx(content, config);
+        onFileProcessed(transactions);
+      } catch (error) {
+        alert(`Ocorreu um erro ao processar o arquivo: ${error.message}`);
+      }
+    };
+    reader.onerror = () => alert('Não foi possível ler o arquivo.');
+    reader.readAsText(file, 'latin1');
+  };
+
+  const parseOfx = (ofxContent, currentConfig) => {
+    const transactions = [];
+    const transactionBlocks = ofxContent.split('<STMTTRN>');
+    if (transactionBlocks.length <= 1) throw new Error("Nenhum bloco de transação (<STMTTRN>) encontrado.");
+    
+    transactionBlocks.shift();
+
+    transactionBlocks.forEach((block, index) => {
+      const dateMatch = block.match(/<DTPOSTED>(\d{8})/);
+      const amountMatch = block.match(/<TRNAMT>([-\d\.,]+)/);
+      const memoMatch = block.match(/<MEMO>(.+)/);
+      const idMatch = block.match(/<FITID>(.+)/);
+
+      if (dateMatch && amountMatch && memoMatch) {
+        const rawDate = dateMatch[1];
+        const formattedDate = `${rawDate.substring(6, 8)}/${rawDate.substring(4, 6)}/${rawDate.substring(0, 4)}`;
+        const normalizedAmount = parseFloat(amountMatch[1].replace(',', '.'));
+        const originalDescription = memoMatch[1].split('</')[0].trim().replace(/&amp;/g, '&');
+
+        let categoria = currentConfig.COD_CATEGORIA;
+        let centroCusto = currentConfig.COD_CENTRO_CUSTO;
+        let validationStatus = 'idle';
+        let historico = originalDescription;
+
+        if (normalizedAmount > 0 && originalDescription.startsWith("PIX RECEBIDO")) {
+          centroCusto = '1';
+          categoria = normalizedAmount >= 100 ? '1' : '2';
+          validationStatus = 'pending';
+          historico = originalDescription.replace(/^PIX RECEBIDO\s+/, '');
+        }
+
+        transactions.push({
+          id: idMatch ? idMatch[1].split('</')[0].trim() : `tx-${Date.now()}-${index}`,
+          date: formattedDate,
+          amount: normalizedAmount,
+          description: originalDescription,
+          eklesia_categoria: categoria,
+          eklesia_centro_custo: centroCusto,
+          eklesia_historico: historico,
+          validationStatus,
+          suggestedNames: [], // Campo para armazenar as sugestões da API
+        });
+      }
+    });
+    
+    if (transactions.length === 0) throw new Error("Nenhuma transação válida foi extraída.");
+    return transactions;
+  };
+
+  return (
+    <div className="card">
+      <h3>1. Selecione o Arquivo OFX</h3>
+      <input type="file" id="file-upload" accept=".ofx" onChange={handleFileChange} />
+    </div>
+  );
+}
+
+// 2. Componente para a configuração dos padrões de exportação
+function Configuration({ config, setConfig }) {
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setConfig(prevConfig => ({ ...prevConfig, [name]: value }));
+  };
+
+  return (
+    <div className="card">
+      <h3>2. Defina os Padrões e a API</h3>
+      <div className="config-grid">
+        <div>
+            <label htmlFor="NOME_CONTA_CORRENTE">Nome da Conta Corrente</label>
+            <input type="text" name="NOME_CONTA_CORRENTE" id="NOME_CONTA_CORRENTE" value={config.NOME_CONTA_CORRENTE} onChange={handleChange} />
+        </div>
+        <div>
+            <label htmlFor="COD_CATEGORIA">Cód. Categoria Padrão</label>
+            <input type="text" name="COD_CATEGORIA" id="COD_CATEGORIA" value={config.COD_CATEGORIA} onChange={handleChange} />
+        </div>
+        <div>
+            <label htmlFor="COD_CENTRO_CUSTO">Cód. Centro de Custo Padrão</label>
+            <input type="text" name="COD_CENTRO_CUSTO" id="COD_CENTRO_CUSTO" value={config.COD_CENTRO_CUSTO} onChange={handleChange} />
+        </div>
+        <div>
+            <label htmlFor="COD_IGREJA">Cód. Igreja (Obrigatório)</label>
+            <input type="text" name="COD_IGREJA" id="COD_IGREJA" value={config.COD_IGREJA} onChange={handleChange} placeholder="Ex: 394" />
+        </div>
+        <div className="config-api-token">
+            <label htmlFor="EKLESIA_API_TOKEN">Token de API Eklesia</label>
+            <input type="password" name="EKLESIA_API_TOKEN" id="EKLESIA_API_TOKEN" value={config.EKLESIA_API_TOKEN} onChange={handleChange} placeholder="Cole seu token Bearer aqui" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 3. Componente para validar nomes com a API
+function ApiValidator({ onValidate, isValidating, transactions }) {
+    const eligibleCount = transactions.filter(t => t.validationStatus === 'pending' || t.validationStatus === 'unverified').length;
+    if (transactions.length === 0) return null;
+
+    return (
+        <div className="card">
+            <h3>3. Valide os Nomes</h3>
+            <p>A aplicação irá consultar a API do Eklesia para verificar os nomes dos contribuintes de "PIX RECEBIDO".</p>
+            <button onClick={onValidate} disabled={isValidating || eligibleCount === 0}>
+                {isValidating ? 'Validando...' : `Validar ${eligibleCount} Nomes com API`}
+            </button>
+        </div>
+    );
+}
+
+
+// 4. Componente para exibir e editar as transações
+function TransactionsTable({ transactions, onUpdate }) {
+  if (transactions.length === 0) {
+    return (
+      <div className="placeholder-card">
+        <p>Aguardando arquivo para exibir as transações...</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Data</th>
+            <th>Valor</th>
+            <th>Histórico (Selecionável/Editável)</th>
+            <th>Categoria (Editável)</th>
+            <th>Centro Custo (Editável)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {transactions.map((t) => (
+            <tr key={t.id}>
+              <td className="status-cell">
+                {t.validationStatus === 'validating' && <SpinnerIcon />}
+                {t.validationStatus === 'verified' && <CheckIcon />}
+                {t.validationStatus === 'unverified' && <AlertIcon />}
+              </td>
+              <td>{t.date}</td>
+              <td className={t.amount < 0 ? 'expense' : 'income'}>{t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+              <td>
+                {t.suggestedNames && t.suggestedNames.length > 0 ? (
+                  <select
+                    value={t.eklesia_historico}
+                    onChange={(e) => onUpdate(t.id, 'eklesia_historico', e.target.value)}
+                    className="editable-input"
+                  >
+                    <option value={t.description.replace(/^PIX RECEBIDO\s+/, '')}>
+                      {t.description.replace(/^PIX RECEBIDO\s+/, '')} (Original)
+                    </option>
+                    {t.suggestedNames.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={t.eklesia_historico}
+                    onChange={(e) => onUpdate(t.id, 'eklesia_historico', e.target.value)}
+                    className="editable-input"
+                  />
+                )}
+              </td>
+              <td><input type="text" value={t.eklesia_categoria} onChange={(e) => onUpdate(t.id, 'eklesia_categoria', e.target.value)} className="editable-input short-input" /></td>
+              <td><input type="text" value={t.eklesia_centro_custo} onChange={(e) => onUpdate(t.id, 'eklesia_centro_custo', e.target.value)} className="editable-input short-input" /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// 5. Componente para gerar o arquivo de importação
+function EklesiaExport({ transactions, config }) {
+  const transactionsToExport = transactions.filter(t => t.amount > 0 && t.description.startsWith("PIX RECEBIDO"));
+
+  const generateEklesiaFile = () => {
+    if (transactionsToExport.length === 0) {
+      alert("Nenhuma transação 'PIX RECEBIDO' de entrada foi encontrada para exportar.");
+      return;
+    }
+
+    const TIPO_ACERTO = { PAGAR: 'PME', RECEBER: 'PIX' };
+    let fileContent = '';
+
+    transactionsToExport.forEach((t, index) => {
+      const isPagar = t.amount < 0;
+      const valorAbsoluto = Math.abs(t.amount).toFixed(2).replace('.', ',');
+      const sanitized = (field) => String(field || '').replace(/[";]/g, '');
+      
+      const linha = [
+        index + 1, t.date, t.date, sanitized(t.eklesia_historico.substring(0, 50)), '01', '5', isPagar ? '2' : '1',
+        valorAbsoluto, sanitized(t.eklesia_categoria), sanitized(t.eklesia_centro_custo),
+        sanitized(t.eklesia_historico.substring(0, 100)), t.date, sanitized(config.NOME_CONTA_CORRENTE),
+        isPagar ? TIPO_ACERTO.PAGAR : TIPO_ACERTO.RECEBER, '0,00', '0,00', '',
+      ];
+      fileContent += linha.join(';') + '\n';
+    });
+
+    const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `importacao_eklesia_${new Date().toISOString().slice(0,10)}.txt`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const eligibleCount = transactionsToExport.length;
+
+  return (
+    <div className="card">
+      <h3>5. Exportar para o Eklesia</h3>
+      <p>A exportação incluirá apenas as transações de "PIX RECEBIDO".</p>
+      <button onClick={generateEklesiaFile} disabled={eligibleCount === 0}>
+        Gerar Arquivo ({eligibleCount} {eligibleCount === 1 ? 'item' : 'itens'})
+      </button>
+    </div>
+  );
+}
+
+
+// --- COMPONENTE PRINCIPAL ---
+export default function App() {
+  const [allTransactions, setAllTransactions] = useState([]);
+  const [config, setConfig] = useState({
+    COD_CATEGORIA: '1',
+    COD_CENTRO_CUSTO: '1',
+    NOME_CONTA_CORRENTE: 'SANTANDER',
+    EKLESIA_API_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOb21lVXN1YXJpbyI6IiIsIkJhbmNvIjoiRUsyMDIyIiwiTmFtZUlkZW50aWZpZXIiOiIxMzgzMzQ5MCIsIlNpZCI6IjNjYzNhMjY2LWJmOTktNGY1Ny1hMmFiLTE5ZmVjZDk1MmY4OSIsIlBlcm1pc3NvZXMiOiItMjAwMCwtNTAwMCIsIm5iZiI6MTc1MzQwMDc3OSwiZXhwIjoyMDY4OTMzNjM5LCJpc3MiOiJ3ZWJBcGkiLCJhdWQiOiJ3ZWJBcGkifQ.NxiKrjtVoUEaj4kGODoVPPYKZ41ATLUPxxR1DuM536Y',
+    COD_IGREJA: '394',
+  });
+  const [isValidating, setIsValidating] = useState(false);
+
+  const handleUpdateTransaction = (id, field, value) => {
+    setAllTransactions(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
+  };
+
+  const handleValidateNames = async () => {
+    if (!config.EKLESIA_API_TOKEN || !config.COD_IGREJA) {
+        alert('Por favor, preencha todos os campos de configuração da API (Token e Cód. Igreja).');
+        return;
+    }
+    setIsValidating(true);
+
+    const transactionsToValidate = allTransactions.filter(t => t.validationStatus === 'pending' || t.validationStatus === 'unverified');
+    let updatedTransactions = [...allTransactions];
+
+    for (const t of transactionsToValidate) {
+        setAllTransactions(prev => prev.map(p => p.id === t.id ? {...p, validationStatus: 'validating'} : p));
+        
+        const searchName = t.eklesia_historico.split(' ').slice(0, 2).join(' ');
+        const baseUrl = 'https://gestaoweb.eklesiaonline.com.br/webapi/api/Integracoes/Pessoa';
+        
+        const params = new URLSearchParams({
+            pagina: 0,
+            codIgreja: config.COD_IGREJA,
+            nome: searchName,
+        });
+        const url = `${baseUrl}?${params.toString()}`;
+
+        try {
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${config.EKLESIA_API_TOKEN}`
+                }
+            });
+
+            let result;
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ mensagem: response.statusText }));
+                console.error(`API Error ${response.status}:`, errorData);
+                result = { ...t, validationStatus: 'unverified', suggestedNames: [] };
+            } else {
+                const data = await response.json();
+                if (data.registros && data.registros.length > 0) {
+                    const suggestedNames = data.registros.map(p => p.nome);
+                    const newHistorico = suggestedNames.length === 1 ? suggestedNames[0] : t.eklesia_historico;
+                    result = { ...t, eklesia_historico: newHistorico, validationStatus: 'verified', suggestedNames: suggestedNames };
+                } else {
+                    result = { ...t, validationStatus: 'unverified', suggestedNames: [] };
+                }
+            }
+            updatedTransactions = updatedTransactions.map(trans => trans.id === t.id ? result : trans);
+            setAllTransactions(updatedTransactions);
+
+        } catch (error) {
+            console.error("Falha na chamada da API:", error);
+            alert("Falha na chamada da API. Verifique sua conexão ou se a API está bloqueando a requisição (CORS).");
+            const errorResult = { ...t, validationStatus: 'unverified', suggestedNames: [] };
+            updatedTransactions = updatedTransactions.map(trans => trans.id === t.id ? errorResult : trans);
+            setAllTransactions(updatedTransactions);
+        }
+    }
+
+    setIsValidating(false);
+  };
+
+  return (
+    <>
+      <style>{`
+        :root {
+          --primary-color: #3498db; --secondary-color: #2c3e50; --background-color: #f0f2f5;
+          --card-background: #ffffff; --text-color: #333; --border-color: #e0e0e0;
+          --income-color: #27ae60; --expense-color: #c0392b; --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--background-color); color: var(--text-color); margin: 0; padding: 1rem; }
+        .container { max-width: 1200px; margin: 2rem auto; display: flex; flex-direction: column; gap: 1.5rem; }
+        header { text-align: center; margin-bottom: 1rem; }
+        header h1 { margin: 0; color: var(--secondary-color); font-size: 2rem; font-weight: 700; }
+        header p { margin-top: 0.25rem; color: #7f8c8d; }
+        .card { background-color: var(--card-background); border-radius: 12px; padding: 1.5rem; box-shadow: var(--shadow); }
+        .card h3 { margin-top: 0; margin-bottom: 1rem; color: var(--secondary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; }
+        
+        input[type="file"] { display: block; width: 100%; padding: 10px; border: 2px dashed var(--border-color); border-radius: 8px; background-color: #fafafa; cursor: pointer; }
+        button { background-color: var(--primary-color); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        button:hover:not(:disabled) { background-color: #2980b9; transform: translateY(-2px); }
+        button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
+
+        .config-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+        .config-grid label { font-weight: 500; margin-bottom: 0.25rem; display: block; }
+        .config-grid input { width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; box-sizing: border-box; }
+        .config-api-token { grid-column: 1 / -1; }
+
+        .table-wrapper { max-height: 500px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; background-color: white; box-shadow: var(--shadow); }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+        thead th { background-color: #f8f9fa; position: sticky; top: 0; z-index: 1; }
+        .editable-input { width: 100%; border: 1px solid transparent; background-color: transparent; padding: 6px; border-radius: 4px; transition: border-color 0.2s; -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+        .editable-input:focus { border-color: var(--primary-color); background-color: white; outline: none; }
+        select.editable-input { background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23007CB2%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E'); background-repeat: no-repeat; background-position: right .7em top 50%, 0 0; background-size: .65em auto, 100%; }
+        .short-input { max-width: 120px; }
+        .expense { color: var(--expense-color); font-weight: 500; }
+        .income { color: var(--income-color); font-weight: 500; }
+        
+        .status-cell { width: 24px; text-align: center; }
+        .spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .placeholder-card { text-align: center; padding: 3rem; color: #95a5a6; background-color: var(--card-background); border-radius: 12px; box-shadow: var(--shadow); }
+
+        @media (max-width: 768px) {
+          .config-grid { grid-template-columns: 1fr; }
+        }
+      `}</style>
+      <div className="container">
+        <header>
+          <h1>Importador Financeiro</h1>
+          <p>Converta seu extrato OFX para o formato do sistema Eklesia</p>
+        </header>
+        <main>
+          <FileUpload onFileProcessed={setAllTransactions} config={config} />
+          <Configuration config={config} setConfig={setConfig} />
+          <ApiValidator onValidate={handleValidateNames} isValidating={isValidating} transactions={allTransactions} />
+          <div className="card">
+            <h3>4. Revise as Transações</h3>
+            <TransactionsTable 
+              transactions={allTransactions} 
+              onUpdate={handleUpdateTransaction} 
+            />
+          </div>
+          <EklesiaExport transactions={allTransactions} config={config} />
+        </main>
+      </div>
+    </>
+  );
+}
