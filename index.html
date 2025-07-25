@@ -30,7 +30,7 @@
 </head>
 <body>
 
-    <div id="app-container" class="max-w-5xl mx-auto my-8 flex flex-col gap-6">
+    <div id="app-container" class="max-w-6xl mx-auto my-8 flex flex-col gap-6">
         <header class="text-center mb-4">
             <h1 class="text-3xl font-bold text-gray-800">Importador Financeiro</h1>
             <p class="text-gray-600">Converta seu extrato OFX para o formato do sistema Eklesia</p>
@@ -59,11 +59,7 @@
                         <label for="config-cod-centro-custo" class="block text-sm font-medium text-gray-700">Cód. Centro de Custo Padrão</label>
                         <input type="text" id="config-cod-centro-custo" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
                     </div>
-                    <div class="md:col-span-1">
-                        <label for="config-cod-igreja" class="block text-sm font-medium text-gray-700">Cód. Igreja (Obrigatório)</label>
-                        <input type="text" id="config-cod-igreja" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
-                    </div>
-                    <div class="md:col-span-2">
+                    <div class="md:col-span-3">
                         <label for="config-api-token" class="block text-sm font-medium text-gray-700">Token de API Eklesia</label>
                         <input type="password" id="config-api-token" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2">
                     </div>
@@ -73,13 +69,25 @@
             <!-- 3. Card de Validação -->
             <div id="validator-card" class="card bg-white rounded-xl shadow-md p-6 hidden">
                 <h3 class="text-xl font-bold text-gray-800 border-b pb-3 mb-4">3. Valide os Nomes</h3>
-                <p class="text-gray-600 mb-4">A aplicação irá consultar a API do Eklesia para verificar os nomes dos contribuintes de "PIX RECEBIDO".</p>
+                <div id="progress-container" class="w-full bg-gray-200 rounded-full h-4 mb-4 hidden">
+                    <div id="progress-bar" class="bg-blue-600 h-4 rounded-full text-center text-white text-xs leading-4" style="width: 0%"></div>
+                </div>
+                <p id="progress-text" class="text-center text-sm text-gray-600 mb-4"></p>
                 <button id="validate-btn" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition">Validar Nomes com API</button>
             </div>
 
             <!-- 4. Card da Tabela -->
             <div class="card bg-white rounded-xl shadow-md p-6">
                 <h3 class="text-xl font-bold text-gray-800 border-b pb-3 mb-4">4. Revise as Transações</h3>
+                <div id="filter-controls" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <input type="text" id="filter-name" placeholder="Filtrar por nome..." class="p-2 border rounded-md">
+                    <select id="filter-value-op" class="p-2 border rounded-md">
+                        <option value="all">Qualquer Valor</option>
+                        <option value="gte">Maior ou igual a</option>
+                        <option value="lte">Menor ou igual a</option>
+                    </select>
+                    <input type="number" id="filter-value" placeholder="Valor (ex: 50.00)" class="p-2 border rounded-md" disabled>
+                </div>
                 <div id="table-wrapper" class="max-h-96 overflow-y-auto">
                     <div id="table-placeholder" class="text-center py-10 text-gray-500">
                         <p>Aguardando arquivo para exibir as transações...</p>
@@ -87,6 +95,7 @@
                     <table id="transactions-table" class="min-w-full divide-y divide-gray-200 hidden">
                         <thead class="bg-gray-50 sticky top-0">
                             <tr>
+                                <th class="px-2 py-2"><input type="checkbox" id="select-all-checkbox" title="Selecionar Todos Visíveis"></th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
                                 <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor</th>
@@ -97,7 +106,6 @@
                             </tr>
                         </thead>
                         <tbody id="transactions-table-body" class="bg-white divide-y divide-gray-200">
-                            <!-- Linhas serão inseridas aqui via JavaScript -->
                         </tbody>
                     </table>
                 </div>
@@ -106,18 +114,16 @@
             <!-- 5. Card de Exportação -->
             <div class="card bg-white rounded-xl shadow-md p-6">
                 <h3 class="text-xl font-bold text-gray-800 border-b pb-3 mb-4">5. Exportar para o Eklesia</h3>
-                <p class="text-gray-600 mb-4">A exportação incluirá apenas as transações de "PIX RECEBIDO".</p>
+                <p class="text-gray-600 mb-4">A exportação incluirá apenas as transações de "PIX RECEBIDO" selecionadas.</p>
                 <button id="export-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition" disabled>Gerar Arquivo (0 itens)</button>
             </div>
         </main>
     </div>
 
     <script type="module">
-        // Importa as funções do Firebase a partir da CDN
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-analytics.js";
 
-        // Configuração do Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyCTl48Lp7t8hO2Y0b2cMmj9KpSctAXI6MQ",
             authDomain: "importeklesia.firebaseapp.com",
@@ -130,40 +136,41 @@
         const app = initializeApp(firebaseConfig);
         const analytics = getAnalytics(app);
 
-        // --- ESTADO DA APLICAÇÃO ---
         let allTransactions = [];
         let config = {
             COD_CATEGORIA: '1',
             COD_CENTRO_CUSTO: '1',
             NOME_CONTA_CORRENTE: 'SANTANDER',
             EKLESIA_API_TOKEN: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJOb21lVXN1YXJpbyI6IiIsIkJhbmNvIjoiRUsyMDIyIiwiTmFtZUlkZW50aWZpZXIiOiIxMzgzMzQ5MCIsIlNpZCI6IjNjYzNhMjY2LWJmOTktNGY1Ny1hMmFiLTE5ZmVjZDk1MmY4OSIsIlBlcm1pc3NvZXMiOiItMjAwMCwtNTAwMCIsIm5iZiI6MTc1MzQwMDc3OSwiZXhwIjoyMDY4OTMzNjM5LCJpc3MiOiJ3ZWJBcGkiLCJhdWQiOiJ3ZWJBcGkifQ.NxiKrjtVoUEaj4kGODoVPPYKZ41ATLUPxxR1DuM536Y',
-            COD_IGREJA: '394',
+            COD_IGREJA: '1',
         };
         let isValidating = false;
 
-        // --- ELEMENTOS DO DOM ---
         const fileUploadInput = document.getElementById('file-upload');
         const configInputs = {
             nomeConta: document.getElementById('config-nome-conta'),
             codCategoria: document.getElementById('config-cod-categoria'),
             codCentroCusto: document.getElementById('config-cod-centro-custo'),
-            codIgreja: document.getElementById('config-cod-igreja'),
             apiToken: document.getElementById('config-api-token'),
         };
         const validatorCard = document.getElementById('validator-card');
         const validateBtn = document.getElementById('validate-btn');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
         const tablePlaceholder = document.getElementById('table-placeholder');
         const table = document.getElementById('transactions-table');
         const tableBody = document.getElementById('transactions-table-body');
         const exportBtn = document.getElementById('export-btn');
-
-        // --- FUNÇÕES DE LÓGICA ---
+        const filterNameInput = document.getElementById('filter-name');
+        const filterValueOpSelect = document.getElementById('filter-value-op');
+        const filterValueInput = document.getElementById('filter-value');
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
 
         function updateConfigFromUI() {
             config.NOME_CONTA_CORRENTE = configInputs.nomeConta.value;
             config.COD_CATEGORIA = configInputs.codCategoria.value;
             config.COD_CENTRO_CUSTO = configInputs.codCentroCusto.value;
-            config.COD_IGREJA = configInputs.codIgreja.value;
             config.EKLESIA_API_TOKEN = configInputs.apiToken.value;
         }
 
@@ -171,7 +178,6 @@
             configInputs.nomeConta.value = config.NOME_CONTA_CORRENTE;
             configInputs.codCategoria.value = config.COD_CATEGORIA;
             configInputs.codCentroCusto.value = config.COD_CENTRO_CUSTO;
-            configInputs.codIgreja.value = config.COD_IGREJA;
             configInputs.apiToken.value = config.EKLESIA_API_TOKEN;
         }
 
@@ -210,6 +216,7 @@
                         eklesia_historico: historico,
                         validationStatus,
                         suggestedNames: [],
+                        selected: true,
                     });
                 }
             });
@@ -217,7 +224,27 @@
             return transactions;
         }
         
-        function renderTable() {
+        function applyFiltersAndRender() {
+            const nameFilter = filterNameInput.value.toLowerCase();
+            const valueOp = filterValueOpSelect.value;
+            const valueFilter = parseFloat(filterValueInput.value);
+
+            const filtered = allTransactions.filter(t => {
+                const nameMatch = t.eklesia_historico.toLowerCase().includes(nameFilter);
+                let valueMatch = true;
+                if (!isNaN(valueFilter)) {
+                    if (valueOp === 'gte') {
+                        valueMatch = t.amount >= valueFilter;
+                    } else if (valueOp === 'lte') {
+                        valueMatch = t.amount <= valueFilter;
+                    }
+                }
+                return nameMatch && valueMatch;
+            });
+            renderTable(filtered);
+        }
+
+        function renderTable(transactionsToRender) {
             if (allTransactions.length === 0) {
                 tablePlaceholder.classList.remove('hidden');
                 table.classList.add('hidden');
@@ -227,9 +254,23 @@
             table.classList.remove('hidden');
 
             tableBody.innerHTML = '';
-            allTransactions.forEach(t => {
+            transactionsToRender.forEach(t => {
                 const row = document.createElement('tr');
                 tableBody.appendChild(row);
+
+                // Checkbox Cell
+                const checkboxCell = document.createElement('td');
+                checkboxCell.className = 'px-2 py-2';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = t.selected;
+                checkbox.className = 'h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500';
+                checkbox.onchange = () => {
+                    t.selected = checkbox.checked;
+                    updateExportButton();
+                };
+                checkboxCell.appendChild(checkbox);
+                row.appendChild(checkboxCell);
 
                 // Status Cell
                 const statusCell = document.createElement('td');
@@ -240,15 +281,10 @@
                 row.appendChild(statusCell);
 
                 // Data e Valor
-                const dateCell = document.createElement('td');
-                dateCell.className = 'px-4 py-2 whitespace-nowrap';
-                dateCell.textContent = t.date;
-                row.appendChild(dateCell);
-
-                const amountCell = document.createElement('td');
-                amountCell.className = `px-4 py-2 whitespace-nowrap ${t.amount < 0 ? 'text-red-600' : 'text-green-600'}`;
-                amountCell.textContent = t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-                row.appendChild(amountCell);
+                row.innerHTML += `
+                    <td class="px-4 py-2 whitespace-nowrap">${t.date}</td>
+                    <td class="px-4 py-2 whitespace-nowrap ${t.amount < 0 ? 'text-red-600' : 'text-green-600'}">${t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                `;
 
                 // Histórico Cell
                 const historicoCell = document.createElement('td');
@@ -274,53 +310,25 @@
                     historicoCell.appendChild(input);
                 }
 
-                // Categoria e Centro de Custo
-                const categoriaCell = document.createElement('td');
-                categoriaCell.className = 'px-4 py-2';
-                const categoriaInput = document.createElement('input');
-                categoriaInput.type = 'text';
-                categoriaInput.value = t.eklesia_categoria;
-                categoriaInput.className = 'w-20 p-1 border rounded';
-                categoriaInput.onchange = (e) => { t.eklesia_categoria = e.target.value; };
-                categoriaCell.appendChild(categoriaInput);
-                row.appendChild(categoriaCell);
-
-                const centroCustoCell = document.createElement('td');
-                centroCustoCell.className = 'px-4 py-2';
-                const centroCustoInput = document.createElement('input');
-                centroCustoInput.type = 'text';
-                centroCustoInput.value = t.eklesia_centro_custo;
-                centroCustoInput.className = 'w-20 p-1 border rounded';
-                centroCustoInput.onchange = (e) => { t.eklesia_centro_custo = e.target.value; };
-                centroCustoCell.appendChild(centroCustoInput);
-                row.appendChild(centroCustoCell);
-
-                // Ação Cell
-                const actionCell = document.createElement('td');
-                actionCell.className = 'px-4 py-2 text-center';
-                if (t.description.startsWith("PIX RECEBIDO")) {
-                    const revalidateBtn = document.createElement('button');
-                    revalidateBtn.className = 'p-1 rounded-full hover:bg-gray-200';
-                    revalidateBtn.title = 'Revalidar este nome';
-                    revalidateBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`;
-                    revalidateBtn.onclick = () => handleRevalidateSingle(t.id);
-                    actionCell.appendChild(revalidateBtn);
-                }
-                row.appendChild(actionCell);
+                // Categoria, Centro de Custo, Ação
+                row.innerHTML += `
+                    <td class="px-4 py-2"><input type="text" value="${t.eklesia_categoria}" class="w-20 p-1 border rounded" onchange="(function(e){ allTransactions.find(tx => tx.id === '${t.id}').eklesia_categoria = e.target.value; })(event)"></td>
+                    <td class="px-4 py-2"><input type="text" value="${t.eklesia_centro_custo}" class="w-20 p-1 border rounded" onchange="(function(e){ allTransactions.find(tx => tx.id === '${t.id}').eklesia_centro_custo = e.target.value; })(event)"></td>
+                    <td class="px-4 py-2 text-center">${t.description.startsWith("PIX RECEBIDO") ? `<button data-id="${t.id}" class="revalidate-btn p-1 rounded-full hover:bg-gray-200" title="Revalidar este nome"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></button>` : ''}</td>
+                `;
             });
         }
 
         function updateExportButton() {
-            const eligibleCount = allTransactions.filter(t => t.amount > 0 && t.description.startsWith("PIX RECEBIDO")).length;
-            exportBtn.textContent = `Gerar Arquivo (${eligibleCount} ${eligibleCount === 1 ? 'item' : 'itens'})`;
-            exportBtn.disabled = eligibleCount === 0;
+            const selectedCount = allTransactions.filter(t => t.selected && t.amount > 0 && t.description.startsWith("PIX RECEBIDO")).length;
+            exportBtn.textContent = `Gerar Arquivo (${selectedCount} ${selectedCount === 1 ? 'item' : 'itens'})`;
+            exportBtn.disabled = selectedCount === 0;
         }
 
         async function validateTransaction(transaction) {
             const t = transaction;
             t.validationStatus = 'validating';
-            renderTable();
-
+            
             const searchName = t.eklesia_historico.split(' ').slice(0, 2).join(' ');
             const baseUrl = 'https://gestaoweb.eklesiaonline.com.br/webapi/api/Integracoes/Pessoa';
             const params = new URLSearchParams({ pagina: 0, codIgreja: config.COD_IGREJA, nome: searchName });
@@ -349,7 +357,6 @@
                 console.error("API Error:", error);
                 t.validationStatus = 'unverified';
             }
-            renderTable();
         }
         
         async function handleValidateNames() {
@@ -361,15 +368,24 @@
             isValidating = true;
             validateBtn.disabled = true;
             validateBtn.textContent = 'Validando...';
+            progressContainer.classList.remove('hidden');
+            progressText.textContent = '';
 
             const transactionsToValidate = allTransactions.filter(t => t.validationStatus === 'pending' || t.validationStatus === 'unverified');
+            let processedCount = 0;
             for (const t of transactionsToValidate) {
                 await validateTransaction(t);
+                processedCount++;
+                const percentage = Math.round((processedCount / transactionsToValidate.length) * 100);
+                progressBar.style.width = `${percentage}%`;
+                progressBar.textContent = `${percentage}%`;
+                progressText.textContent = `Validando ${processedCount} de ${transactionsToValidate.length}...`;
             }
 
             isValidating = false;
             validateBtn.disabled = false;
             validateBtn.textContent = 'Validar Nomes com API';
+            applyFiltersAndRender();
         }
 
         async function handleRevalidateSingle(transactionId) {
@@ -385,12 +401,13 @@
                 await validateTransaction(transaction);
             }
             isValidating = false;
+            applyFiltersAndRender();
         }
 
         function handleExport() {
-            const transactionsToExport = allTransactions.filter(t => t.amount > 0 && t.description.startsWith("PIX RECEBIDO"));
+            const transactionsToExport = allTransactions.filter(t => t.selected && t.amount > 0 && t.description.startsWith("PIX RECEBIDO"));
             if (transactionsToExport.length === 0) {
-                alert("Nenhuma transação 'PIX RECEBIDO' de entrada foi encontrada para exportar.");
+                alert("Nenhuma transação 'PIX RECEBIDO' de entrada foi selecionada para exportar.");
                 return;
             }
             let fileContent = '';
@@ -415,7 +432,6 @@
             document.body.removeChild(link);
         }
         
-        // --- INICIALIZAÇÃO E EVENTOS ---
         document.addEventListener('DOMContentLoaded', () => {
             updateUIFromConfig();
 
@@ -426,9 +442,14 @@
                 reader.onload = (e) => {
                     try {
                         allTransactions = parseOfx(e.target.result);
-                        renderTable();
+                        applyFiltersAndRender();
                         updateExportButton();
                         validatorCard.classList.remove('hidden');
+                        progressContainer.classList.add('hidden');
+                        progressBar.style.width = '0%';
+                        progressBar.textContent = '';
+                        progressText.textContent = '';
+
                     } catch (error) {
                         alert(`Erro ao processar arquivo: ${error.message}`);
                     }
@@ -439,6 +460,45 @@
             validateBtn.addEventListener('click', handleValidateNames);
             exportBtn.addEventListener('click', handleExport);
             Object.values(configInputs).forEach(input => input.addEventListener('change', updateConfigFromUI));
+
+            // Event Listeners for Filters
+            [filterNameInput, filterValueOpSelect, filterValueInput].forEach(el => {
+                el.addEventListener('input', applyFiltersAndRender);
+            });
+            filterValueOpSelect.addEventListener('change', () => {
+                filterValueInput.disabled = filterValueOpSelect.value === 'all';
+            });
+            
+            // Event Listener for Select All
+            selectAllCheckbox.addEventListener('change', () => {
+                const isChecked = selectAllCheckbox.checked;
+                const nameFilter = filterNameInput.value.toLowerCase();
+                const valueOp = filterValueOpSelect.value;
+                const valueFilter = parseFloat(filterValueInput.value);
+
+                allTransactions.forEach(t => {
+                    const nameMatch = t.eklesia_historico.toLowerCase().includes(nameFilter);
+                    let valueMatch = true;
+                    if (!isNaN(valueFilter)) {
+                        if (valueOp === 'gte') valueMatch = t.amount >= valueFilter;
+                        else if (valueOp === 'lte') valueMatch = t.amount <= valueFilter;
+                    }
+                    if (nameMatch && valueMatch) {
+                        t.selected = isChecked;
+                    }
+                });
+                applyFiltersAndRender();
+                updateExportButton();
+            });
+            
+            // Event delegation for revalidate buttons
+            tableBody.addEventListener('click', (e) => {
+                const button = e.target.closest('.revalidate-btn');
+                if (button) {
+                    const id = button.dataset.id;
+                    handleRevalidateSingle(id);
+                }
+            });
         });
 
     </script>
