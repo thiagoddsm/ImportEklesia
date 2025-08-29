@@ -114,7 +114,7 @@
             <!-- 5. Card de Exportação -->
             <div class="card bg-white rounded-xl shadow-md p-6">
                 <h3 class="text-xl font-bold text-gray-800 border-b pb-3 mb-4">5. Exportar para o Eklesia</h3>
-                <p class="text-gray-600 mb-4">A exportação incluirá apenas as transações de "PIX RECEBIDO" selecionadas.</p>
+                <p class="text-gray-600 mb-4">A exportação incluirá todas as transações selecionadas na tabela acima.</p>
                 <button id="export-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition" disabled>Gerar Arquivo (0 itens)</button>
             </div>
         </main>
@@ -180,6 +180,26 @@
             configInputs.codCentroCusto.value = config.COD_CENTRO_CUSTO;
             configInputs.apiToken.value = config.EKLESIA_API_TOKEN;
         }
+        
+        function applyBankRules() {
+            const selectedBank = configInputs.nomeConta.value;
+            allTransactions.forEach(t => {
+                if (selectedBank === 'PAGBANK') {
+                    if (t.amount > 0) { // Entrada
+                        t.eklesia_categoria = '124';
+                        t.eklesia_centro_custo = '2';
+                    } else { // Saída
+                        t.eklesia_categoria = '134';
+                        t.eklesia_centro_custo = '2';
+                    }
+                } else {
+                    // Reverte para o padrão para outros bancos
+                    t.eklesia_categoria = config.COD_CATEGORIA;
+                    t.eklesia_centro_custo = config.COD_CENTRO_CUSTO;
+                }
+            });
+            applyFiltersAndRender();
+        }
 
         function parseOfx(ofxContent) {
             const transactions = [];
@@ -211,8 +231,8 @@
                         date: formattedDate,
                         amount: normalizedAmount,
                         description: originalDescription,
-                        eklesia_categoria: normalizedAmount >= 100 ? '1' : '2',
-                        eklesia_centro_custo: '1',
+                        eklesia_categoria: config.COD_CATEGORIA,
+                        eklesia_centro_custo: config.COD_CENTRO_CUSTO,
                         eklesia_historico: historico,
                         validationStatus,
                         suggestedNames: [],
@@ -306,7 +326,6 @@
                     datalist.id = dataListId;
                     const originalName = t.description.replace(/^PIX RECEBIDO\s+/, '');
                     
-                    // **CORREÇÃO**: Garante que a lista de autocompletar seja sempre criada para PIX
                     datalist.innerHTML = `<option value="${originalName}"></option>` +
                                          `<option value="CONTRIBUICAO DE NAO MEMBRO"></option>` +
                                          (t.suggestedNames || []).map(name => `<option value="${name}"></option>`).join('');
@@ -352,7 +371,7 @@
         }
 
         function updateExportButton() {
-            const selectedCount = allTransactions.filter(t => t.selected && t.amount > 0 && t.description.startsWith("PIX RECEBIDO")).length;
+            const selectedCount = allTransactions.filter(t => t.selected).length;
             exportBtn.textContent = `Gerar Arquivo (${selectedCount} ${selectedCount === 1 ? 'item' : 'itens'})`;
             exportBtn.disabled = selectedCount === 0;
         }
@@ -440,28 +459,41 @@
         }
 
         function handleExport() {
-            const transactionsToExport = allTransactions.filter(t => t.selected && t.amount > 0 && t.description.startsWith("PIX RECEBIDO"));
+            const transactionsToExport = allTransactions.filter(t => t.selected);
             if (transactionsToExport.length === 0) {
-                alert("Nenhuma transação 'PIX RECEBIDO' de entrada foi selecionada para exportar.");
+                alert("Nenhuma transação foi selecionada para exportar.");
                 return;
             }
             let fileContent = '';
             transactionsToExport.forEach((t, index) => {
                 const valorAbsoluto = Math.abs(t.amount).toFixed(2).replace('.', ',');
+                const natureza = t.amount > 0 ? '1' : '2'; // 1 para Receber, 2 para Pagar
+                
+                let tipoAcerto;
+                const descUpper = t.description.toUpperCase();
+                if (descUpper.includes("PIX")) {
+                    tipoAcerto = 'PIX';
+                } else if (descUpper.includes("TRANSF")) {
+                    tipoAcerto = 'TRA';
+                } else {
+                    tipoAcerto = (natureza === '1') ? 'TRA' : 'PME';
+                }
+                
                 const sanitized = (field) => String(field || '').replace(/[";]/g, '');
+                
                 const linha = [
-                    index + 1, t.date, t.date, sanitized(t.eklesia_historico.substring(0, 50)), '01', '5', '1',
+                    index + 1, t.date, t.date, sanitized(t.eklesia_historico.substring(0, 50)), '01', '5', natureza,
                     valorAbsoluto, sanitized(t.eklesia_categoria), sanitized(t.eklesia_centro_custo),
                     sanitized(t.eklesia_historico.substring(0, 100)), t.date, sanitized(config.NOME_CONTA_CORRENTE),
-                    'PIX', '0,00', '0,00', '',
+                    tipoAcerto, '0,00', '0,00', '',
                 ];
                 fileContent += linha.join(';') + '\n';
             });
-            const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8;' });
+            const blob = new Blob([fileContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
             const url = URL.createObjectURL(blob);
             link.setAttribute("href", url);
-            link.setAttribute("download", `importacao_eklesia_${new Date().toISOString().slice(0,10)}.txt`);
+            link.setAttribute("download", `importacao_eklesia_${new Date().toISOString().slice(0,10)}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -477,7 +509,7 @@
                 reader.onload = (e) => {
                     try {
                         allTransactions = parseOfx(e.target.result);
-                        applyFiltersAndRender();
+                        applyBankRules();
                         updateExportButton();
                         validatorCard.classList.remove('hidden');
                         progressContainer.classList.add('hidden');
@@ -494,7 +526,15 @@
 
             validateBtn.addEventListener('click', handleValidateNames);
             exportBtn.addEventListener('click', handleExport);
-            Object.values(configInputs).forEach(input => input.addEventListener('change', updateConfigFromUI));
+
+            configInputs.nomeConta.addEventListener('change', () => {
+                updateConfigFromUI();
+                applyBankRules();
+            });
+            configInputs.codCategoria.addEventListener('change', updateConfigFromUI);
+            configInputs.codCentroCusto.addEventListener('change', updateConfigFromUI);
+            configInputs.apiToken.addEventListener('change', updateConfigFromUI);
+
 
             [filterNameInput, filterValueOpSelect, filterValueInput].forEach(el => {
                 el.addEventListener('input', applyFiltersAndRender);
@@ -536,3 +576,4 @@
     </script>
 </body>
 </html>
+
